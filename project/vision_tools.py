@@ -2,6 +2,10 @@ import os
 
 import skimage.io
 from skimage.measure import label
+from skimage.filters import difference_of_gaussians
+from scipy.signal import convolve2d
+from scipy.ndimage.morphology import binary_dilation
+from skimage.morphology import disk
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 import math
@@ -21,7 +25,64 @@ def dist_eucl(a, b):
     return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
 
 
-def extract_obj_caracteristics(im_label_mask, retained_item, player_pos, verbose):
+def detect_dealer(dealer_mask, num_pix_thresh=10000):
+    im_label_mask, num_items = label(dealer_mask, return_num=True)
+
+    rects = []
+    retained_items = []
+    num_pixs = []
+    for i in range(num_items):
+        pix_num = (im_label_mask == i + 1).sum()
+        if pix_num > num_pix_thresh:
+            # items that are big enough
+            retained_item = i + 1
+            rect = extract_rectangle(im_label_mask, retained_item, plt_format=False)
+            rects.append(rect)
+            retained_items.append(retained_item)
+            num_pixs.append(pix_num)
+
+    dealer_index = np.argmax(num_pixs)
+    d_rect, plt_rect = rects[dealer_index]
+    c_x = d_rect[1] - d_rect[3]
+    c_y = d_rect[2] - d_rect[0]
+
+    # define player positons on the center of each border
+    im_height, im_width = dealer_mask.shape
+
+    p_pos = [(im_width // 2, im_height),  # 1
+             (im_width, im_height // 2),  # 2
+             (im_width // 2, 0),  # 3
+             (0, im_height // 2)]  # 4
+
+    dealer_num = np.argmin([dist_eucl((c_x, c_y), p) for p in p_pos]) + 1
+    return d_rect, plt_rect, dealer_num
+
+
+def extract_rectangle(im_label_mask, retained_item, plt_format=True):
+    """
+    Extract interesting object properties
+    :param im_label_mask: image labels matrix
+    :param retained_item: value of label for the object
+    :param player_pos: list of player positions
+    :param verbose: verbose mode
+    :return:
+    """
+    # coordinates of the points belonging to this item
+    coords_y, coords_x = np.where(im_label_mask == retained_item)
+    top = coords_y.min()
+    right = coords_x.max()
+    bot = coords_y.max()
+    left = coords_x.min()
+
+    # xy anchor for plt Rectangle patch
+    anchor = (left, top)
+    width = right - left
+    height = bot - top
+    rect_plt = (anchor, width, height)
+    return (top, right, bot, left), rect_plt
+
+
+def extract_obj_caracteristics(im_label_mask, retained_item, player_pos=None, verbose=False):
     """
     Extract interesting object properties
     :param im_label_mask: image labels matrix
@@ -69,7 +130,40 @@ def find_small_d(c_x, c_y, d_index, big_value):
     return np.argmin(dist_to_big_d)
 
 
-def extract_cards(im, mask, name, threshold=40, num_pix_thresh=10000, verbose=True, plot=True, plot_cards=False):
+def card_pipeline(folder, file):
+    f_name = os.path.join(folder, file)
+    im = load_img(folder, file)
+
+    # dilation mask
+    im_height, im_width = im.shape[:2]
+    dilation_mask = np.ones((im_height, im_width))
+    dilation_mask[im_height - 500:, :] = 0
+    dilation_mask[:100, :] = 0
+
+    im_green = filter_on_green(im)
+    mask_dealer = detect_object_border_dealer(im_green, threshold=40, plot=True)
+    # suppress reflection
+    mask_dealer = mask_dealer * dilation_mask
+    # detect dealer
+    print('detect dealer')
+    (top, right, bottom, left), d_plt_rect, dealer_num = detect_dealer(mask_dealer)
+    print(dealer_num)
+    mask = detect_object_border(im_green, threshold=20, plot=True)
+    # suppress reflection
+    mask = mask * dilation_mask
+    # remove D
+    mask[top - 1:bottom + 1, left - 1:right + 1] = 0
+    mask = binary_dilation(mask, structure=disk(20))
+
+    # extract cards
+    dealer = (dealer_num, d_plt_rect)
+    cards = extract_cards(im, mask, f_name, dealer, card_seg_thresh=50, verbose=True, plot_cards=True)
+
+
+def extract_cards(im, mask, name, dealer, card_seg_thresh=40, num_pix_thresh=10000,
+                  verbose=True, plot=True, plot_cards=False):
+    f_name = name.replace('/', '_')
+    dealer_num, dealer_rect = dealer
     # label items in image
     im_label_mask, num_items = label(mask, return_num=True)
 
@@ -102,29 +196,6 @@ def extract_cards(im, mask, name, threshold=40, num_pix_thresh=10000, verbose=Tr
             num_pixs.append(pix_num)
             role.append(p_id)
 
-    # dealer is the larges number of pixels
-    dealer_index = np.argmax(num_pixs)
-    dealer_player = role[dealer_index]
-    role[dealer_index] = 'D'
-    if verbose:
-        print(f'Dealer is at index {dealer_index}')
-        print(f'Dealer player is {dealer_player}')
-
-    small_d_index = find_small_d(c_points_x, c_points_y, dealer_index, max(im_height, im_width))
-    role[small_d_index] = 'd'
-
-    # merge the 'd' with the 'D'
-    label_small_d = retained_items[small_d_index]
-    label_big_d = retained_items[dealer_index]
-    if verbose:
-        print(f'Inner part of D @ index {label_small_d} -> {label_big_d}')
-    # merge the inner part and the outer part
-    im_label_mask[im_label_mask == label_small_d] = label_big_d
-    del rects[small_d_index]
-    del retained_items[small_d_index]
-    del role[small_d_index]
-    num_items -= 1
-
     # print roles
     if verbose:
         print('Roles :')
@@ -133,25 +204,33 @@ def extract_cards(im, mask, name, threshold=40, num_pix_thresh=10000, verbose=Tr
     # plot the b-boxes
     if plot:
         plt.figure(figsize=(24, 12))
-        plt.subplot(121)
+        # plt.subplot(121)
         for i, (idx, rect) in enumerate(zip(retained_items, rects)):
             rect_patch = Rectangle(*rect, fill=False, lw=2, ec='r')
             plt.gca().add_patch(rect_patch)
             anchor = list(rect[0])
             anchor[1] -= 50  # offset anchor
-            if role[i] == 'D':
-                plt.annotate('Dealer', anchor, c='r')
-            else:
-                plt.annotate(f'Player {role[i]}', anchor, c='r')
+            plt.annotate(f'Player {role[i]}', anchor, c='r')
+        rect_patch = Rectangle(*dealer_rect, fill=False, lw=2, ec='r')
+        plt.gca().add_patch(rect_patch)
+        anchor = list(dealer_rect[0])
+        anchor[1] -= 50  # offset anchor
+        plt.annotate('Dealer', anchor, c='r')
         plt.imshow(im, interpolation='none')
         plt.title(name)
-        plt.subplot(122)
-        plt.imshow(mask, cmap='gray', interpolation='none')
+        # plt.subplot(122)
+        # plt.imshow(mask, cmap='gray', interpolation='none')
+        plt.savefig(f'results/{f_name}', bbox_inches='tight', dpi=300)
         plt.show()
 
     cards = []
     for i in range(4):
         idx_player = role.index(i + 1)
+        if idx_player is None:
+            cards.append([])
+            if verbose:
+                print(f'Player {i+1} was not detected')
+            continue
         label_player = retained_items[idx_player]
         anchor, r_width, r_height = rects[idx_player]
         if verbose:
@@ -180,16 +259,18 @@ def extract_cards(im, mask, name, threshold=40, num_pix_thresh=10000, verbose=Tr
             plt.subplot(132)
             plt.imshow(g_card, cmap='gray', vmin=0, vmax=255, interpolation="none")
             plt.subplot(133)
-            plt.imshow(g_card < threshold, cmap='gray', interpolation="none")
+            plt.imshow(g_card < card_seg_thresh, cmap='gray', interpolation="none")
             plt.axhline(0.25 * r_height, c='r')
             plt.axhline(0.75 * r_height, c='r')
             plt.axvline(0.2 * r_width, c='r')
             plt.axvline(0.8 * r_width, c='r')
+            plt.tight_layout()
+            plt.savefig(f'results/{f_name.split(".")[0]}_p{i+1}.jpg', bbox_inches='tight', dpi=300)
             plt.show()
-            plt.hist(g_card.flatten(), bins=256)
-            plt.axvline(threshold, c='r')
-            plt.show()
-    return cards, dealer_player
+            # plt.hist(g_card.flatten(), bins=256)
+            # plt.axvline(card_seg_thresh, c='r')
+            # plt.show()
+    return cards
 
 
 def convert_to_gray_scale(im):
@@ -197,16 +278,58 @@ def convert_to_gray_scale(im):
     return g_img
 
 
-def detect_object_border(im, threshold=80):
-    # apply green channel enhancement
-    im_green = 2 * im[:, :, 1] - im[:, :, 0] - im[:, :, 2]
-    # threshold
-    mask = im_green >= threshold
-    return mask
-
-
 def load_img(folder, image):
     f_name = os.path.join(folder, image)
     im_uint8 = skimage.io.imread(f_name)
     im = im_uint8.astype('int')
     return im
+
+
+def filter_on_green(im):
+    im_green = 2 * im[:, :, 1] - im[:, :, 0] - im[:, :, 2]
+    return im_green * (im_green > im_green.mean())
+
+
+def detect_object_border(im_green, threshold=20, plot=False):
+    """
+    Detect image borders with difference of Gaussians method
+    :param im_green: image with enhanced green channel
+    :param threshold: threshold value to be used for the filter (default: 20)
+    :return: masked image
+    """
+    im_filtered = difference_of_gaussians(im_green, 10)
+    im_filtered /= im_filtered.max()
+    im_filtered *= 255
+    # threshold
+    mask = (im_filtered > threshold)
+
+    if plot:
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 8))
+        ax1.imshow(im_green, cmap='gray')
+        ax1.axis('off')
+        ax2.imshow(im_filtered, cmap='gray')
+        ax2.axis('off')
+        ax3.imshow(mask, cmap='gray')
+        ax3.axis('off')
+        plt.show()
+
+    return mask
+
+
+def detect_object_border_dealer(im_green, threshold, plot=False):
+    hp_filter = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    im_filtered = convolve2d(im_green, hp_filter, mode='same')
+
+    # threshold
+    mask = (im_filtered > threshold)
+
+    if plot:
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 8))
+        ax1.imshow(im_green, cmap='gray')
+        ax1.axis('off')
+        ax2.imshow(im_filtered, cmap='gray')
+        ax2.axis('off')
+        ax3.imshow(mask, cmap='gray')
+        ax3.axis('off')
+        plt.show()
+    return mask
