@@ -127,7 +127,7 @@ def find_small_d(c_x, c_y, d_index, big_value):
     return np.argmin(dist_to_big_d)
 
 
-def card_pipeline(folder, file, verbose=False):
+def card_pipeline(folder, file, verbose=False, plot=False, save=True):
     f_name = os.path.join(folder, file)
     file_name = f_name.replace("\\", "_").replace("/", "_")
     if verbose:
@@ -160,16 +160,17 @@ def card_pipeline(folder, file, verbose=False):
     # remove D
     mask[top - MARGIN_DEALER:bottom + MARGIN_DEALER, left - MARGIN_DEALER:right + MARGIN_DEALER] = 0
     mask = binary_dilation(mask, structure=disk(20))
-    plt.imshow(mask, cmap='gray')
-    plt.show()
+    #plt.imshow(mask, cmap='gray')
+    #plt.show()
 
     # extract cards
     dealer = (dealer_num, d_plt_rect)
-    cards = extract_cards(im, mask, file_name, dealer, card_seg_thresh=50, verbose=True, plot_cards=True)
+    cards = extract_cards(im, mask, file_name, dealer, card_seg_thresh=50, verbose=verbose, plot=plot, save=save)
+    return cards, dealer
 
 
 def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thresh=10000,
-                  verbose=True, plot=True, plot_cards=False):
+                  verbose=True, plot=True, save=True):
     dealer_num, dealer_rect = dealer
     # label items in image
     im_label_mask, num_items = label(mask, return_num=True)
@@ -238,13 +239,13 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
         plt.gca().add_patch(rect_patch)
         anchor = list(dealer_rect[0])
         anchor[1] -= 50  # offset anchor
-        plt.annotate('Dealer', anchor, c='r')
-        plt.imshow(im, interpolation='none')
-        plt.title(file_name)
+        #plt.annotate('Dealer', anchor, c='r')
+        #plt.imshow(im, interpolation='none')
+        #plt.title(file_name)
         # plt.subplot(122)
         # plt.imshow(mask, cmap='gray', interpolation='none')
-        plt.savefig(f'results/{file_name}', bbox_inches='tight', dpi=300)
-        plt.show()
+        #plt.savefig(f'results/{file_name}', bbox_inches='tight', dpi=300)
+        #plt.show()
 
     cards = []
     for i in range(4):
@@ -276,7 +277,8 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
 
         cards.append(card)
         g_card = convert_to_gray_scale(card)
-        if plot_cards:
+        if plot:
+
             plt.subplot(131)
             plt.imshow(card, vmin=0, vmax=255, interpolation="none")
             plt.subplot(132)
@@ -293,6 +295,10 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
             # plt.hist(g_card.flatten(), bins=256)
             # plt.axvline(card_seg_thresh, c='r')
             # plt.show()
+        if save:
+            #plt.imshow(g_card < card_seg_thresh, cmap='gray', interpolation="none")
+            skimage.io.imsave(f'results/masks/{file_name.split(".")[0]}_p{i + 1}.jpg',g_card < card_seg_thresh)
+            plt.close()
     return cards
 
 
@@ -326,7 +332,7 @@ def detect_object_border(im_green, threshold=30, file_name=None, l=None):
     # threshold
     mask = (im_filtered > threshold)
 
-    if file_name:
+    '''if file_name:
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 8))
         # fig.suptitle(file_name)
         ax1.imshow(im_green, cmap='gray')
@@ -341,9 +347,10 @@ def detect_object_border(im_green, threshold=30, file_name=None, l=None):
         for y in l:
             plt.axhline(y, c='r')
         plt.tight_layout()
-        plt.savefig(f'results/{file_name.split(".")[0]}_LoG.jpg', bbox_inches='tight', dpi=300)
-        plt.show()
+        #plt.savefig(f'results/{file_name.split(".")[0]}_LoG.jpg', bbox_inches='tight', dpi=300)
+        plt.show()'''
     return mask
+
 
 
 def detect_object_border_dealer(im_green, threshold, file_name=None, l=None):
@@ -353,7 +360,7 @@ def detect_object_border_dealer(im_green, threshold, file_name=None, l=None):
     # threshold
     mask = (im_filtered > threshold)
 
-    if file_name:
+    '''if file_name:
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 8))
         # fig.suptitle(file_name)
         ax1.imshow(im_green, cmap='gray')
@@ -368,6 +375,9 @@ def detect_object_border_dealer(im_green, threshold, file_name=None, l=None):
         for y in l:
             plt.axhline(y, c='r')
         plt.tight_layout()
-        plt.savefig(f'results/{file_name.split(".")[0]}_High_Pass.jpg', bbox_inches='tight', dpi=300)
-        plt.show()
+        #plt.savefig(f'results/{file_name.split(".")[0]}_High_Pass.jpg', bbox_inches='tight', dpi=300)
+        plt.show()'''
     return mask
+
+def segment_for_CNN(image, folder, target_dim = (100,100)):
+    image
