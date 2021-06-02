@@ -2,7 +2,7 @@ import os
 
 import skimage.io
 from skimage.measure import label
-from skimage.filters import difference_of_gaussians
+from scipy.ndimage import gaussian_laplace
 from scipy.signal import convolve2d
 from scipy.ndimage.morphology import binary_dilation
 from skimage.morphology import disk
@@ -220,7 +220,8 @@ def extract_cards(im, mask, name, dealer, card_seg_thresh=40, num_pix_thresh=100
         plt.title(name)
         # plt.subplot(122)
         # plt.imshow(mask, cmap='gray', interpolation='none')
-        plt.savefig(f'results/{f_name}', bbox_inches='tight', dpi=300)
+        file_name = f_name.replace("\\", "_").replace("/","_")
+        plt.savefig(f'results/{file_name}', bbox_inches='tight', dpi=300)
         plt.show()
 
     cards = []
@@ -265,7 +266,7 @@ def extract_cards(im, mask, name, dealer, card_seg_thresh=40, num_pix_thresh=100
             plt.axvline(0.2 * r_width, c='r')
             plt.axvline(0.8 * r_width, c='r')
             plt.tight_layout()
-            plt.savefig(f'results/{f_name.split(".")[0]}_p{i+1}.jpg', bbox_inches='tight', dpi=300)
+            plt.savefig(f'results/{file_name.split(".")[0]}_p{i+1}.jpg', bbox_inches='tight', dpi=300)
             plt.show()
             # plt.hist(g_card.flatten(), bins=256)
             # plt.axvline(card_seg_thresh, c='r')
@@ -297,8 +298,8 @@ def detect_object_border(im_green, threshold=20, plot=False):
     :param threshold: threshold value to be used for the filter (default: 20)
     :return: masked image
     """
-    im_filtered = difference_of_gaussians(im_green, 10)
-    im_filtered /= im_filtered.max()
+    im_filtered = gaussian_laplace(im_green, 0.3)*(-1)
+    im_filtered = im_filtered / im_filtered.max()
     im_filtered *= 255
     # threshold
     mask = (im_filtered > threshold)
