@@ -26,23 +26,18 @@ def dist_eucl(a, b):
 
 
 def detect_dealer(dealer_mask, num_pix_thresh=10000):
+    
     im_label_mask, num_items = label(dealer_mask, return_num=True)
+    
+    size_items = np.unique(im_label_mask, return_counts=True)
+    
+    # remove background
+    size_items = np.delete(size_items, 0, axis=1)
 
-    rects = []
-    retained_items = []
-    num_pixs = []
-    for i in range(num_items):
-        pix_num = (im_label_mask == i + 1).sum()
-        if pix_num > num_pix_thresh:
-            # items that are big enough
-            retained_item = i + 1
-            rect = extract_rectangle(im_label_mask, retained_item, plt_format=False)
-            rects.append(rect)
-            retained_items.append(retained_item)
-            num_pixs.append(pix_num)
-
-    dealer_index = np.argmax(num_pixs)
-    d_rect, plt_rect = rects[dealer_index]
+    dealer_index = size_items[0][np.argmax(size_items[1])]
+    
+    rect = extract_rectangle(im_label_mask, dealer_index, plt_format=False)
+    d_rect, plt_rect = rect
     c_x = d_rect[1] - d_rect[3]
     c_y = d_rect[2] - d_rect[0]
 
@@ -55,6 +50,7 @@ def detect_dealer(dealer_mask, num_pix_thresh=10000):
              (0, im_height // 2)]  # 4
 
     dealer_num = np.argmin([dist_eucl((c_x, c_y), p) for p in p_pos]) + 1
+    
     return d_rect, plt_rect, dealer_num
 
 
@@ -131,28 +127,33 @@ def find_small_d(c_x, c_y, d_index, big_value):
 
 
 def card_pipeline(folder, file):
+    
     f_name = os.path.join(folder, file)
     im = load_img(folder, file)
 
     # dilation mask
     im_height, im_width = im.shape[:2]
     dilation_mask = np.ones((im_height, im_width))
-    dilation_mask[im_height - 500:, :] = 0
+    dilation_mask[im_height - 200:, :] = 0
     dilation_mask[:100, :] = 0
 
     im_green = filter_on_green(im)
+    
     mask_dealer = detect_object_border_dealer(im_green, threshold=40, plot=True)
+    
     # suppress reflection
     mask_dealer = mask_dealer * dilation_mask
+
     # detect dealer
-    print('detect dealer')
     (top, right, bottom, left), d_plt_rect, dealer_num = detect_dealer(mask_dealer)
-    print(dealer_num)
-    mask = detect_object_border(im_green, threshold=20, plot=True)
+    
+    mask = detect_object_border(im_green, threshold=30, plot=True)
     # suppress reflection
     mask = mask * dilation_mask
-    # remove D
+    
+    # remove dealer
     mask[top - 1:bottom + 1, left - 1:right + 1] = 0
+    
     mask = binary_dilation(mask, structure=disk(20))
 
     # extract cards
@@ -291,7 +292,7 @@ def filter_on_green(im):
     return im_green * (im_green > im_green.mean())
 
 
-def detect_object_border(im_green, threshold=20, plot=False):
+def detect_object_border(im_green, threshold, plot=False):
     """
     Detect image borders with difference of Gaussians method
     :param im_green: image with enhanced green channel

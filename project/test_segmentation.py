@@ -4,8 +4,8 @@ import importlib
 
 importlib.reload(vision_tools)
 
-for i in tqdm(range(1,2)):
+for i in tqdm(range(1,8)):
     folder = 'train_games/game' + str(i)
-    for j in tqdm(range(1,2)):
+    for j in tqdm(range(1,14)):
         file = str(j) + '.jpg'
         vision_tools.card_pipeline(folder, file)
