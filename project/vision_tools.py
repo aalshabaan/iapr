@@ -13,6 +13,9 @@ import numpy as np
 
 X = 0
 Y = 1
+MARGIN_DEALER = 50
+EXCLUDE_MARGIN_TOP = 100
+EXCLUDE_MARGIN_BOTTOM = 100
 
 
 def dist_eucl(a, b):
@@ -26,17 +29,16 @@ def dist_eucl(a, b):
 
 
 def detect_dealer(dealer_mask, num_pix_thresh=10000):
-    
     im_label_mask, num_items = label(dealer_mask, return_num=True)
-    
+
     size_items = np.unique(im_label_mask, return_counts=True)
-    
+
     # remove background
     size_items = np.delete(size_items, 0, axis=1)
 
     dealer_index = size_items[0][np.argmax(size_items[1])]
-    
-    rect = extract_rectangle(im_label_mask, dealer_index, plt_format=False)
+
+    rect = extract_rectangle(im_label_mask, dealer_index)
     d_rect, plt_rect = rect
     c_x = d_rect[1] - d_rect[3]
     c_y = d_rect[2] - d_rect[0]
@@ -50,11 +52,10 @@ def detect_dealer(dealer_mask, num_pix_thresh=10000):
              (0, im_height // 2)]  # 4
 
     dealer_num = np.argmin([dist_eucl((c_x, c_y), p) for p in p_pos]) + 1
-    
     return d_rect, plt_rect, dealer_num
 
 
-def extract_rectangle(im_label_mask, retained_item, plt_format=True):
+def extract_rectangle(im_label_mask, retained_item):
     """
     Extract interesting object properties
     :param im_label_mask: image labels matrix
@@ -126,44 +127,49 @@ def find_small_d(c_x, c_y, d_index, big_value):
     return np.argmin(dist_to_big_d)
 
 
-def card_pipeline(folder, file):
-    
+def card_pipeline(folder, file, verbose=False):
     f_name = os.path.join(folder, file)
+    file_name = f_name.replace("\\", "_").replace("/", "_")
+    if verbose:
+        print(file_name)
     im = load_img(folder, file)
 
     # dilation mask
     im_height, im_width = im.shape[:2]
     dilation_mask = np.ones((im_height, im_width))
-    dilation_mask[im_height - 200:, :] = 0
-    dilation_mask[:100, :] = 0
+    y_excl_bot = im_height - EXCLUDE_MARGIN_BOTTOM
+    y_excl_top = EXCLUDE_MARGIN_TOP
+    dilation_mask[y_excl_bot:, :] = 0
+    dilation_mask[:y_excl_top, :] = 0
 
     im_green = filter_on_green(im)
-    
-    mask_dealer = detect_object_border_dealer(im_green, threshold=40, plot=True)
-    
+
+    mask_dealer = detect_object_border_dealer(im_green, threshold=40, file_name=file_name,
+                                              l=(y_excl_top, y_excl_bot))
     # suppress reflection
     mask_dealer = mask_dealer * dilation_mask
 
     # detect dealer
     (top, right, bottom, left), d_plt_rect, dealer_num = detect_dealer(mask_dealer)
-    
-    mask = detect_object_border(im_green, threshold=30, plot=True)
+    if verbose:
+        print(dealer_num)
+    mask = detect_object_border(im_green, threshold=30, l=(y_excl_top, y_excl_bot))
     # suppress reflection
     mask = mask * dilation_mask
-    
-    # remove dealer
-    mask[top - 1:bottom + 1, left - 1:right + 1] = 0
-    
+
+    # remove D
+    mask[top - MARGIN_DEALER:bottom + MARGIN_DEALER, left - MARGIN_DEALER:right + MARGIN_DEALER] = 0
     mask = binary_dilation(mask, structure=disk(20))
+    plt.imshow(mask, cmap='gray')
+    plt.show()
 
     # extract cards
     dealer = (dealer_num, d_plt_rect)
-    cards = extract_cards(im, mask, f_name, dealer, card_seg_thresh=50, verbose=True, plot_cards=True)
+    cards = extract_cards(im, mask, file_name, dealer, card_seg_thresh=50, verbose=True, plot_cards=True)
 
 
-def extract_cards(im, mask, name, dealer, card_seg_thresh=40, num_pix_thresh=10000,
+def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thresh=10000,
                   verbose=True, plot=True, plot_cards=False):
-    f_name = name.replace('/', '_')
     dealer_num, dealer_rect = dealer
     # label items in image
     im_label_mask, num_items = label(mask, return_num=True)
@@ -197,10 +203,26 @@ def extract_cards(im, mask, name, dealer, card_seg_thresh=40, num_pix_thresh=100
             num_pixs.append(pix_num)
             role.append(p_id)
 
-    # print roles
-    if verbose:
-        print('Roles :')
-        [print(a, b) for a, b in zip(retained_items, role)]
+    # check that there is only one player with the same number
+    role_copy = role
+    rects_copy = rects
+    for p_id in range(4):
+        index_with_role = [i for i, v in enumerate(role) if v == p_id+1]
+        if len(index_with_role) > 1:
+            surf = [v[1]*v[2] for v in [rects[i] for i in index_with_role]]
+            print(surf)
+            max_surf_index = np.argmax(surf)
+            index_to_keep = index_with_role[max_surf_index]
+            for i in index_with_role[::-1]:
+                if i != index_to_keep:
+                    del retained_items[i]
+                    del rects_copy[i]
+                    del c_points_x[i]
+                    del c_points_y[i]
+                    del num_pixs[i]
+                    del role_copy[i]
+    role = role_copy
+    rects = rects_copy
 
     # plot the b-boxes
     if plot:
@@ -218,10 +240,9 @@ def extract_cards(im, mask, name, dealer, card_seg_thresh=40, num_pix_thresh=100
         anchor[1] -= 50  # offset anchor
         plt.annotate('Dealer', anchor, c='r')
         plt.imshow(im, interpolation='none')
-        plt.title(name)
+        plt.title(file_name)
         # plt.subplot(122)
         # plt.imshow(mask, cmap='gray', interpolation='none')
-        file_name = f_name.replace("\\", "_").replace("/","_")
         plt.savefig(f'results/{file_name}', bbox_inches='tight', dpi=300)
         plt.show()
 
@@ -233,7 +254,7 @@ def extract_cards(im, mask, name, dealer, card_seg_thresh=40, num_pix_thresh=100
             if verbose:
                 print(f'Player {i+1} was not detected')
             continue
-        label_player = retained_items[idx_player]
+        # label_player = retained_items[idx_player]
         anchor, r_width, r_height = rects[idx_player]
         if verbose:
             print(anchor, r_width, r_height)
@@ -292,7 +313,7 @@ def filter_on_green(im):
     return im_green * (im_green > im_green.mean())
 
 
-def detect_object_border(im_green, threshold, plot=False):
+def detect_object_border(im_green, threshold=30, file_name=None, l=None):
     """
     Detect image borders with difference of Gaussians method
     :param im_green: image with enhanced green channel
@@ -305,33 +326,48 @@ def detect_object_border(im_green, threshold, plot=False):
     # threshold
     mask = (im_filtered > threshold)
 
-    if plot:
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 8))
+    if file_name:
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 8))
+        # fig.suptitle(file_name)
         ax1.imshow(im_green, cmap='gray')
+        ax1.set_title('image after filtering on green')
         ax1.axis('off')
         ax2.imshow(im_filtered, cmap='gray')
+        ax2.set_title('image after LoG')
         ax2.axis('off')
         ax3.imshow(mask, cmap='gray')
+        ax3.set_title('image after thresholding')
         ax3.axis('off')
+        for y in l:
+            plt.axhline(y, c='r')
+        plt.tight_layout()
+        plt.savefig(f'results/{file_name.split(".")[0]}_LoG.jpg', bbox_inches='tight', dpi=300)
         plt.show()
-
     return mask
 
 
-def detect_object_border_dealer(im_green, threshold, plot=False):
+def detect_object_border_dealer(im_green, threshold, file_name=None, l=None):
     hp_filter = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
     im_filtered = convolve2d(im_green, hp_filter, mode='same')
 
     # threshold
     mask = (im_filtered > threshold)
 
-    if plot:
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(24, 8))
+    if file_name:
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 8))
+        # fig.suptitle(file_name)
         ax1.imshow(im_green, cmap='gray')
+        ax1.set_title('image after filtering on green')
         ax1.axis('off')
         ax2.imshow(im_filtered, cmap='gray')
+        ax2.set_title('image after filtering with high pass')
         ax2.axis('off')
         ax3.imshow(mask, cmap='gray')
+        ax3.set_title('image after thresholding')
         ax3.axis('off')
+        for y in l:
+            plt.axhline(y, c='r')
+        plt.tight_layout()
+        plt.savefig(f'results/{file_name.split(".")[0]}_High_Pass.jpg', bbox_inches='tight', dpi=300)
         plt.show()
     return mask
