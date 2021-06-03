@@ -319,6 +319,6 @@ def predict_round(model:Classifier, encoders:dict, images:np.ndarray):
     symbol_decoded = encoders['sym'].inverse_transform(symbol_pred.cpu().numpy())
     suit_decoded = encoders['suit'].inverse_transform(suit_pred.cpu().numpy())
 
-    out = [x+y for x,y in zip(symbol_decoded, suit_decoded)]
+    out = [f'{x}{y}' for x,y in zip(symbol_decoded, suit_decoded)]
     return out
 
