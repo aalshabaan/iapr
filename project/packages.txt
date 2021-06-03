@@ -1,0 +1,10 @@
+skimage
+scipy
+matplotlib
+numpy
+tqdm
+torch
+torchvision
+pickle
+pandas
+sklearn
