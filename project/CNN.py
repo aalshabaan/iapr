@@ -3,8 +3,8 @@ import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from torch.optim import Adam
 from torchvision.datasets.mnist import MNIST
-from torchvision.transforms import Resize
 
+import pickle
 import numpy as np
 import os
 import pandas as pd
@@ -209,8 +209,11 @@ def train_new_classifier(folder:str, verbose=False, save=False, validate=True, v
 
     model.eval()
     if save:
-        print(f'Saving Model to {os.getcwd()}/classifier.torch')
+        print(f'Saving Model to {os.getcwd()+os.path.sep}classifier.torch')
         torch.save(model.state_dict(), 'classifier.torch')
+        print(f'Saving encoders to {os.getcwd()+os.path.sep}encoders.pkl')
+        with open('./encoders.pkl', 'wb') as f:
+            pickle.dump(encoders, f)
     return model, hist, encoders
 
 
@@ -282,3 +285,15 @@ def produce_labels():
         temp['game'] = game
         labels = labels.append(temp, ignore_index=True)
     return labels
+
+def load_trained_model():
+    """
+    Loads a pretrained model from the file 'classifier.torch'
+    :return: The loaded model
+    """
+    model = Classifier()
+    model.load_state_dict(torch.load('./classifier.torch'))
+    model.eval()
+    with open('./encoders.pkl', 'rb') as f:
+        encoders = pickle.load(f)
+    return model, encoders
