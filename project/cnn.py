@@ -30,19 +30,19 @@ class Classifier(nn.Module):
                             nn.BatchNorm2d(32),
                             nn.ReLU(),
 
-                            nn.Dropout(0.2),
+                            #nn.Dropout(0.2),
                             nn.Conv2d(32, 64, 5, padding=2),
                             nn.MaxPool2d(2),
                             nn.BatchNorm2d(64),
                             nn.ReLU(),
 
-                            nn.Dropout(0.2),
+                            #nn.Dropout(0.2),
                             nn.Conv2d(64, 128, 5, padding=2),
                             nn.MaxPool2d(2),
                             nn.BatchNorm2d(128),
                             nn.ReLU(),
 
-                            nn.Dropout(0.2),
+                            #nn.Dropout(0.2),
                             nn.Conv2d(128, 256, 5, padding=2),
                             nn.MaxPool2d(2),
                             nn.BatchNorm2d(256),
@@ -153,7 +153,7 @@ def train_new_classifier(folder:str, verbose=False, save=False, validate=True, v
     if verbose:
         print('Starting training')
 
-    for epoch in range(100):
+    for epoch in range(75):
         model.train()
         optimizer.zero_grad()
         sym_acc = 0
@@ -270,7 +270,6 @@ def get_training_tensors(folder:str, labels:pd.DataFrame, validation_game=7):
         return images, symbols, suits, symbol_encoder, suit_encoder
 
 
-
 def produce_labels():
     """
     Concatenate all label DataFrames into one
@@ -286,14 +285,40 @@ def produce_labels():
         labels = labels.append(temp, ignore_index=True)
     return labels
 
+
 def load_trained_model():
     """
     Loads a pretrained model from the file 'classifier.torch'
     :return: The loaded model
     """
+
     model = Classifier()
     model.load_state_dict(torch.load('./classifier.torch'))
+    if torch.cuda.is_available():
+        model.cuda()
     model.eval()
     with open('./encoders.pkl', 'rb') as f:
         encoders = pickle.load(f)
     return model, encoders
+
+
+def predict_round(model:Classifier, encoders:dict, images:np.ndarray):
+    """
+    Predicts the values of the 4 cards present in this round
+    :param model: The classifier model to do the predictions
+    :param encoders: The label encoders that'll be used to inverse transform the labels
+    :param images: list of 4 card masks, input to the model
+    :return: list of strings ['QH', '6S', etc..]
+    """
+    device = next(model.parameters()).device
+    input_ = torch.Tensor([resize(img_as_float(im), (100,100)) for im in images]).to(device).unsqueeze(1)
+    symbol_out, suit_out = model(input_)
+    symbol_pred = symbol_out.argmax(1)
+    suit_pred = suit_out.argmax(1)
+
+    symbol_decoded = encoders['sym'].inverse_transform(symbol_pred.cpu().numpy())
+    suit_decoded = encoders['suit'].inverse_transform(suit_pred.cpu().numpy())
+
+    out = [x+y for x,y in zip(symbol_decoded, suit_decoded)]
+    return out
+

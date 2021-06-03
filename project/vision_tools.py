@@ -115,7 +115,7 @@ def card_pipeline(folder, file, verbose=False, plot=False, save=True, show=False
     # extract cards
     cards = extract_cards(im, mask, file_name, dealer, card_seg_thresh=50,
                           verbose=verbose, plot=plot, save=save, show=show)
-    return cards, dealer
+    return [skimage.img_as_ubyte(convert_to_gray_scale(card) < 40)for card in cards], dealer
 
 
 def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thresh=10000,
