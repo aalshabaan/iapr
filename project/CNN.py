@@ -13,6 +13,7 @@ from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import TensorDataset, DataLoader
 from torch.optim import Adam
 
+
 class all_classifier(nn.Module):
 
     def __init__(self):
@@ -68,9 +69,6 @@ class all_classifier(nn.Module):
         return symbol, suit
 
 
-
-
-
 def train_new_classifier(folder, verbose=False, save=False):
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -120,10 +118,6 @@ def train_new_classifier(folder, verbose=False, save=False):
     return model
 
 
-
-
-
-
 def get_training_tensors(folder, labels):
     files = [f'{folder}/{x}' for x in os.listdir(folder) if 'p' in x]
     images = []
@@ -147,7 +141,6 @@ def get_training_tensors(folder, labels):
     suits = torch.from_numpy(suit_encoder.fit_transform(suits))
 
     return images, symbols, suits, symbol_encoder, suit_encoder
-
 
 
 def produce_labels():
