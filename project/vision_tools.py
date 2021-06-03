@@ -507,3 +507,38 @@ def dist_eucl(a, b):
     :return: euclidean distance between a and b
     """
     return math.sqrt((a[X] - b[X]) ** 2 + (a[Y] - b[Y]) ** 2)
+
+
+def compute_pts(rank_colour, dealer):
+    """
+    Computes the number of points for a game of 13 rounds
+    :param rank_colour:
+    :param dealer: list of lists of predictions, one list per round, four predictions of the type "QS", '8D', etc..
+    :return: Tuple of lists, points under standard rules and under advanced rules per player
+    """
+    pts_standard = [0, 0, 0, 0]
+    pts_advanced = [0, 0, 0, 0]
+
+    for i in range(np.shape(rank_colour)[0]):
+        curr_round_std = [0, 0, 0, 0]
+        curr_round_adv = [0, 0, 0, 0]
+        dealer_suit = rank_colour[i, dealer[i] - 1][1]
+        for j in range(np.shape(rank_colour)[1]):
+            if rank_colour[i, j][0] == 'J':
+                curr_round_std[j] = 10
+                curr_round_adv[j] = 10
+            elif rank_colour[i, j][0] == 'Q':
+                curr_round_std[j] = 11
+                curr_round_adv[j] = 11
+            elif rank_colour[i, j][0] == 'K':
+                curr_round_std[j] = 12
+                curr_round_adv[j] = 12
+            else:
+                curr_round_std[j] = int(rank_colour[i, j][0])
+                curr_round_adv[j] = int(rank_colour[i, j][0])
+            if rank_colour[i, j][1] != dealer_suit:
+                curr_round_adv[j] = -1
+        for j in np.flatnonzero(curr_round_std == np.max(curr_round_std)).tolist():
+            pts_standard[j] += 1
+        pts_advanced[np.argmax(curr_round_adv)] += 1
+    return pts_standard, pts_advanced
