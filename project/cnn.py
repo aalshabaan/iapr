@@ -286,16 +286,17 @@ def produce_labels():
     return labels
 
 
-def load_trained_model():
+def load_trained_model(cuda=True):
     """
     Loads a pretrained model from the file 'classifier.torch'
     :return: The loaded model
     """
 
     model = Classifier()
-    model.load_state_dict(torch.load('./classifier.torch'))
-    if torch.cuda.is_available():
-        model.cuda()
+    if cuda and torch.cuda.is_available():
+        model.load_state_dict(torch.load('./classifier.torch'))
+    else:
+        model.load_state_dict(torch.load('./classifier-cpu.torch'))
     model.eval()
     with open('./encoders.pkl', 'rb') as f:
         encoders = pickle.load(f)
