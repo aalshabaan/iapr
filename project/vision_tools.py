@@ -9,9 +9,9 @@ from scipy.ndimage.morphology import binary_dilation
 from skimage.morphology import disk
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
+
 # disable interactive mode
 plt.ioff()
-
 
 # Indexes
 X = 0
@@ -113,19 +113,18 @@ def card_pipeline(folder, file, verbose=False, plot=False, save=True, show=False
     dealer = (dealer_num, d_plt_rect)
 
     # extract cards
-    cards = extract_cards(im, mask, file_name, dealer, card_seg_thresh=50,
-                          verbose=verbose, plot=plot, save=save, show=show)
-    return [skimage.img_as_ubyte(convert_to_gray_scale(card) < 40)for card in cards], dealer
+    cards = extract_cards(im, mask, file_name, card_seg_thresh=50, verbose=verbose,
+                          plot=plot, save=save, show=show)
+    return im, cards, dealer
 
 
-def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thresh=10000,
+def extract_cards(im, mask, file_name, card_seg_thresh=50, num_pix_thresh=10000,
                   verbose=True, plot=True, save=True, show=True):
     """
     Extract segmented cards as well as their associated characteristics
     :param im: base image (RGB, full scale)
     :param mask: segmentation mask to detect cards borders
     :param file_name: display name of the current image
-    :param dealer: structure with dealer number and dealer rectangle in plt format to plot
     :param card_seg_thresh: threshold to use for card segmentation
     :param num_pix_thresh: minimum area in pixels that features must have to be processed
     :param verbose: whether to show messages and print infos
@@ -134,9 +133,6 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
     :param show: whether to show plots
     :return: list of segmentation masks of cards
     """
-    # unfold dealer structure
-    dealer_num, dealer_rect = dealer
-
     # label items in image
     im_label_mask, num_items = label(mask, return_num=True)
 
@@ -151,29 +147,30 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
              (0, im_height // 2)]  # 4
 
     # extract each features characteristics
-    c_points_x = []
-    c_points_y = []
+    # c_points_x = []
+    # c_points_y = []
+    # retained_items = []
+    # num_pixs = []
     rects = []
-    retained_items = []
-    num_pixs = []
     role = []
     for i in range(num_items):
         pix_num = (im_label_mask == i + 1).sum()
         if pix_num > num_pix_thresh:
             # items that are big enough
             retained_item = i + 1
-            rect, c_x, c_y, p_id = extract_obj_prop(im_label_mask, retained_item, p_pos,
-                                                    verbose=verbose)
-            c_points_x.append(c_x)
-            c_points_y.append(c_y)
+            # rect, c_x, c_y, p_id = extract_obj_prop(im_label_mask, retained_item, p_pos,
+            #                                         verbose=verbose)
+            # c_points_x.append(c_x)
+            # c_points_y.append(c_y)
+            rect, p_id = extract_obj_prop(im_label_mask, retained_item, p_pos,
+                                          verbose=verbose)
             rects.append(rect)
-            retained_items.append(retained_item)
-            num_pixs.append(pix_num)
+            # retained_items.append(retained_item)
+            # num_pixs.append(pix_num)
             role.append(p_id)
 
     # check that there is only one player with the same number
-    role_copy = role
-    rects_copy = rects
+    players = []
     for p_id in range(MAX_PLAYERS):
         index_with_role = [i for i, v in enumerate(role) if v == p_id + 1]
         if len(index_with_role) > 1:
@@ -181,52 +178,23 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
             if verbose:
                 print(surf)
             index_to_keep = index_with_role[np.argmax(surf)]
-            for i in index_with_role[::-1]:
-                if i != index_to_keep:
-                    del retained_items[i]
-                    del rects_copy[i]
-                    del c_points_x[i]
-                    del c_points_y[i]
-                    del num_pixs[i]
-                    del role_copy[i]
-    role = role_copy
-    rects = rects_copy
+            players.append(rects[index_to_keep])
 
-    # plot the bounding-boxes
-    if plot:
-        plt.figure(figsize=(24, 12))
-        for i, (idx, rect) in enumerate(zip(retained_items, rects)):
-            rect_patch = Rectangle(*rect, fill=False, lw=2, ec='r')
-            plt.gca().add_patch(rect_patch)
-            anchor = list(rect[ANCHOR])
-            anchor[Y] -= 50  # offset anchor
-            plt.annotate(f'Player {role[i]}', anchor, c='r')
-        # add Dealer bbox
-        rect_patch = Rectangle(*dealer_rect, fill=False, lw=2, ec='r')
-        plt.gca().add_patch(rect_patch)
-        anchor = list(dealer_rect[ANCHOR])
-        anchor[Y] -= 50  # offset anchor
-        plt.annotate('Dealer', anchor, c='r')
-        plt.imshow(im, interpolation='none')
-        plt.title(file_name)
-        if save:
-            plt.savefig(f'results/{file_name}', bbox_inches='tight', dpi=300)
-        if show:
-            plt.show()
+        elif len(index_with_role) == 1:
+            players.append(rects[index_with_role[0]])
         else:
-            # plt.clf()
-            plt.close()
+            players.append(None)
 
     cards = []
     for i in range(MAX_PLAYERS):
-        idx_player = role.index(i + 1)
-        if idx_player is None:
+        player_rect = players[i]
+        if player_rect is None:
             cards.append([])
             if verbose:
                 print(f'Player {i + 1} was not detected')
             continue
 
-        anchor, r_width, r_height = rects[idx_player]
+        anchor, r_width, r_height = player_rect
         top = anchor[Y]
         bottom = anchor[Y] + r_height
         left = anchor[X]
@@ -236,15 +204,17 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
         # apply rotations
         if i == 1:  # rotate clock wise 90°
             card = np.transpose(card[::-1, ...], (1, 0, 2))
-            r_width, r_height = r_height, r_width
+            # r_width, r_height = r_height, r_width
         elif i == 2:  # rotate 180°
             card = card[::-1, ::-1, :]
         elif i == 3:  # rotate -90°
             card = np.transpose(card, (1, 0, 2))[::-1, ...]
-            r_width, r_height = r_height, r_width
+            # r_width, r_height = r_height, r_width
 
-        cards.append(card)
         g_card = convert_to_gray_scale(card)
+        card_mask = skimage.img_as_ubyte(g_card < card_seg_thresh)
+        cards.append(card_mask)
+
         if plot:
             plt.subplot(131)
             plt.imshow(card, vmin=0, vmax=255, interpolation="none")
@@ -252,10 +222,10 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
             plt.imshow(g_card, cmap='gray', vmin=0, vmax=255, interpolation="none")
             plt.subplot(133)
             plt.imshow(g_card < card_seg_thresh, cmap='gray', interpolation="none")
-            plt.axhline(0.25 * r_height, c='r')
-            plt.axhline(0.75 * r_height, c='r')
-            plt.axvline(0.2 * r_width, c='r')
-            plt.axvline(0.8 * r_width, c='r')
+            # plt.axhline(0.25 * r_height, c='r')
+            # plt.axhline(0.75 * r_height, c='r')
+            # plt.axvline(0.2 * r_width, c='r')
+            # plt.axvline(0.8 * r_width, c='r')
             plt.tight_layout()
             if save:
                 plt.savefig(f'results/cards/{file_name.split(".")[0]}_p{i + 1}.jpg',
@@ -263,16 +233,11 @@ def extract_cards(im, mask, file_name, dealer, card_seg_thresh=40, num_pix_thres
             if show:
                 plt.show()
             else:
-                # plt.clf()
                 plt.close()
-            # plt.hist(g_card.flatten(), bins=256)
-            # plt.axvline(card_seg_thresh, c='r')
-            # plt.show()
         if save:
-            card_mask = skimage.img_as_ubyte(g_card < card_seg_thresh)
             card_name = f'results/masks/{file_name.split(".")[0]}_p{i + 1}.jpg'
             skimage.io.imsave(card_name, card_mask)
-    return cards
+    return cards, players
 
 
 def detect_dealer(dealer_mask):
@@ -368,7 +333,8 @@ def extract_obj_prop(im_label_mask, retained_item, player_pos=None, verbose=Fals
         print(f'anchor : {rect[0]}\nwidth : {rect[1]}\nheight : {rect[2]}')
         print(f'player : {player_num}')
         print('-' * 30)
-    return rect, coords_x.mean(), coords_y.mean(), player_num
+    # return rect, coords_x.mean(), coords_y.mean(), player_num
+    return rect, player_num
 
 
 def segment_img_log(im_green, threshold=30, file_name=None, l=None,
@@ -464,6 +430,32 @@ def segment_img_high_pass(im_green, threshold, file_name=None, l=None,
             # plt.clf()
             plt.close(fig)
     return mask
+
+
+def plot_bbox(im, card_rects, card_preds, dealer_rect, file_name, save=True, show=True):
+    plt.figure(figsize=(24, 12))
+    for i, rect in enumerate(card_rects):
+        if rect is None:
+            continue
+        rect_patch = Rectangle(*rect, fill=False, lw=2, ec='r')
+        plt.gca().add_patch(rect_patch)
+        anchor = list(rect[ANCHOR])
+        anchor[Y] -= 50  # offset anchor
+        plt.annotate(f'Player {i+1} : {card_preds[i]}', anchor, c='r')
+    # add Dealer bbox
+    rect_patch = Rectangle(*dealer_rect, fill=False, lw=2, ec='r')
+    plt.gca().add_patch(rect_patch)
+    anchor = list(dealer_rect[ANCHOR])
+    anchor[Y] -= 50  # offset anchor
+    plt.annotate('Dealer', anchor, c='r')
+    plt.imshow(im, interpolation='none')
+    plt.title(file_name)
+    if save:
+        plt.savefig(f'results/{file_name}', bbox_inches='tight', dpi=300)
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
 
 def load_img(folder, image):
